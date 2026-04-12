@@ -1,0 +1,95 @@
+{
+  "index_patterns": ["products-*"],
+  "data_stream": {},
+  "priority": 200,
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 1,
+      "refresh_interval": "1s",
+      "index.lifecycle.name": "products-ilm",
+      "translog": {
+        "durability": "async",
+        "sync_interval": "5s"
+      },
+      "analysis": {
+        "tokenizer": {
+          "edge_ngram_tokenizer": {
+            "type": "edge_ngram",
+            "min_gram": 2,
+            "max_gram": 10,
+            "token_chars": ["letter", "digit"]
+          }
+        },
+        "analyzer": {
+          "shopping_standard": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": ["lowercase"]
+          },
+          "shopping_edge_ngram": {
+            "type": "custom",
+            "tokenizer": "edge_ngram_tokenizer",
+            "filter": ["lowercase"]
+          }
+        }
+      }
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "product_id":  { "type": "keyword" },
+        "title": {
+          "type": "text",
+          "analyzer": "shopping_standard",
+          "fields": {
+            "keyword": { "type": "keyword", "ignore_above": 256 },
+            "ngram": {
+              "type": "text",
+              "analyzer": "shopping_edge_ngram",
+              "search_analyzer": "shopping_standard"
+            }
+          }
+        },
+        "brand": {
+          "type": "keyword",
+          "fields": {
+            "text": { "type": "text", "analyzer": "shopping_standard" }
+          }
+        },
+        "brand_id":       { "type": "keyword" },
+        "category_path":  { "type": "keyword" },
+        "category_leaf":  { "type": "keyword" },
+        "tags":           { "type": "keyword" },
+        "price":          { "type": "integer" },
+        "original_price": { "type": "integer" },
+        "discount_rate":  { "type": "float" },
+        "currency":       { "type": "keyword" },
+        "stock":          { "type": "integer" },
+        "in_stock":       { "type": "boolean" },
+        "sales_count":    { "type": "long" },
+        "view_count":     { "type": "long" },
+        "review_count":   { "type": "integer" },
+        "review_score":   { "type": "float" },
+        "options": {
+          "type": "nested",
+          "properties": {
+            "color": { "type": "keyword" },
+            "size":  { "type": "keyword" },
+            "stock": { "type": "integer" }
+          }
+        },
+        "seller_id":      { "type": "keyword" },
+        "shipping_free":  { "type": "boolean" },
+        "image_url":      { "type": "keyword", "index": false, "doc_values": false },
+        "created_at":     { "type": "date" },
+        "updated_at":     { "type": "date" }
+      }
+    }
+  },
+  "_meta": {
+    "phase": "2",
+    "description": "Phase 2 data stream template with ILM. rollover + hot/warm/cold tier 자동 전환."
+  }
+}

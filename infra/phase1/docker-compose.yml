@@ -1,0 +1,150 @@
+# Phase 1 — 3-node Elasticsearch 클러스터 + 모니터링 스택
+#
+# 설계 의도:
+#   - master 3개 (quorum 2) → split-brain 방지
+#   - node1, node2: master + data_hot (실제 데이터 보관)
+#   - node3: master + coordinating-only (쿼리 분산, 데이터 미보관)
+#   - elasticsearch_exporter: ES 내부 metric → Prometheus 포맷 변환
+#   - Grafana: ES Overview 대시보드 자동 provisioning
+#
+# 로컬 리소스 가정:
+#   - ES 노드 3개 × 1G heap → ~3G + 시스템 캐시 ~3G = 6G RAM 권장
+#   - Docker Desktop의 Memory를 8G 이상으로 설정해야 안정적
+
+services:
+  # ─────────────────────────────────────────
+  # Elasticsearch — 3-node cluster
+  # ─────────────────────────────────────────
+
+  es-node1:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: es-node1
+    environment:
+      - node.name=node1
+      - cluster.name=search-poc
+      - discovery.seed_hosts=es-node1,es-node2,es-node3
+      - cluster.initial_master_nodes=node1,node2,node3
+      # Heap을 1g로 제한 — 컨테이너 메모리의 50% 원칙 (Page Cache 보호)
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - xpack.security.enabled=false
+      # bootstrap 체크 우회 (단일 호스트 PoC 한정)
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }   # mlockall 허용 → swap 방지
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ./es/node1.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - es-node1-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"   # REST API (외부 노출)
+    networks: [search-net]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  es-node2:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: es-node2
+    environment:
+      - node.name=node2
+      - cluster.name=search-poc
+      - discovery.seed_hosts=es-node1,es-node2,es-node3
+      - cluster.initial_master_nodes=node1,node2,node3
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ./es/node2.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - es-node2-data:/usr/share/elasticsearch/data
+    ports:
+      - "9201:9200"
+    networks: [search-net]
+    depends_on: [es-node1]
+
+  es-node3:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: es-node3
+    environment:
+      - node.name=node3
+      - cluster.name=search-poc
+      - discovery.seed_hosts=es-node1,es-node2,es-node3
+      - cluster.initial_master_nodes=node1,node2,node3
+      # node3는 coordinating-only 역할 → Heap을 작게 할당
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ./es/node3.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - es-node3-data:/usr/share/elasticsearch/data
+    ports:
+      - "9202:9200"
+    networks: [search-net]
+    depends_on: [es-node1]
+
+  # ─────────────────────────────────────────
+  # Monitoring — Prometheus + Grafana
+  # ─────────────────────────────────────────
+
+  # ES 내부 metric을 Prometheus 포맷으로 노출
+  # NOTE: 8.x부터 ES 자체에 prometheus endpoint가 없어 별도 exporter 사용
+  es-exporter:
+    image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.7.0
+    container_name: es-exporter
+    command:
+      - '--es.uri=http://es-node1:9200'
+      - '--es.all'                 # 모든 노드 metric 수집
+      - '--es.indices'              # 인덱스별 stat
+      - '--es.indices_settings'
+      - '--es.shards'               # 샤드별 stat
+      - '--es.cluster_settings'
+    ports:
+      - "9114:9114"
+    networks: [search-net]
+    depends_on: [es-node1]
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [search-net]
+    depends_on: [es-exporter]
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks: [search-net]
+    depends_on: [prometheus]
+
+networks:
+  search-net:
+    driver: bridge
+
+volumes:
+  es-node1-data:
+  es-node2-data:
+  es-node3-data:
+  prometheus-data:
+  grafana-data:

@@ -1,0 +1,33 @@
+# node3 — master + coordinating-only
+#
+# coordinating-only 노드의 의미:
+#   - 데이터를 보관하지 않음 (data 역할 없음)
+#   - 클라이언트 요청을 받아서 적절한 data 노드로 분산
+#   - search 결과를 reduce/merge하는 단계만 수행
+#
+# 면접 포인트 — 왜 분리하나?
+#   1) 검색 fan-out 시 결과 병합은 CPU/메모리 집약적
+#   2) data 노드가 그 작업까지 떠안으면 색인/검색 스레드 풀과 경쟁
+#   3) coordinating을 분리하면 data 노드 Heap을 검색/색인 본업에 집중시킬 수 있음
+#
+# 한계:
+#   PoC는 단일 호스트라 효과가 미미하지만, Phase 2에서 tier 분리 + 검색 부하 시
+#   p99 지연 차이를 실측할 예정.
+
+cluster.name: search-poc
+node.name: node3
+node.roles: [master]    # data 역할 비워두면 자동으로 coordinating 가능
+
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+discovery.seed_hosts: ["es-node1", "es-node2", "es-node3"]
+cluster.initial_master_nodes: ["node1", "node2", "node3"]
+
+bootstrap.memory_lock: true
+
+xpack.security.enabled: false
+xpack.security.transport.ssl.enabled: false
+
+xpack.monitoring.collection.enabled: true

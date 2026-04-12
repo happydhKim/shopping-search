@@ -1,6 +1,9 @@
-# Claude Code — 프로젝트별 AI 지시사항 (개인용, 미공개)
+# Claude Code — 프로젝트별 AI 지시사항
 CLAUDE.md
 .claude/
 
 # 참고 문서 (개인용)
 search.md
+
+# 설계/조사 문서
+docs/

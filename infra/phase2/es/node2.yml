@@ -1,0 +1,16 @@
+cluster.name: search-poc
+node.name: node2
+node.roles: [master, data_hot, data_content, ingest]
+
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+discovery.seed_hosts: ["es-node1", "es-node2", "es-node3", "es-node4", "es-node5"]
+cluster.initial_master_nodes: ["node1", "node2", "node3"]
+
+bootstrap.memory_lock: true
+
+xpack.security.enabled: false
+xpack.security.transport.ssl.enabled: false
+xpack.monitoring.collection.enabled: true
