@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
         source: "/api/search",
         destination: `${SEARCH_API}/search`,
       },
+      {
+        source: "/api/suggest",
+        destination: `${SEARCH_API}/suggest`,
+      },
     ];
   },
 };

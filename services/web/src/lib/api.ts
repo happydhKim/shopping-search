@@ -56,3 +56,26 @@ export async function searchProducts(
   }
   return (await res.json()) as SearchResponse;
 }
+
+export type Suggestion = {
+  product_id: string;
+  title: string;
+};
+
+export type SuggestResponse = {
+  suggestions: Suggestion[];
+  took_ms?: number;
+};
+
+export async function fetchSuggestions(
+  q: string,
+  signal?: AbortSignal,
+): Promise<Suggestion[]> {
+  const res = await fetch(
+    `/api/suggest?q=${encodeURIComponent(q)}`,
+    { signal },
+  );
+  if (!res.ok) return [];
+  const body = (await res.json()) as SuggestResponse;
+  return body.suggestions ?? [];
+}
