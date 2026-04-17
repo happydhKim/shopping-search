@@ -2,6 +2,8 @@ package com.kakao.search.api;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.FieldValue;
+import co.elastic.clients.elasticsearch._types.aggregations.Aggregation;
+import co.elastic.clients.elasticsearch._types.aggregations.AggregationRange;
 import co.elastic.clients.elasticsearch._types.query_dsl.FieldValueFactorModifier;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
@@ -20,35 +22,38 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 /**
  * ES 쿼리 조립/실행 핵심.
  *
- * <p>쿼리 구조 (Phase 3 Turn 3):
+ * <p>쿼리 구조:
  * <pre>
- *   function_score(
- *     query = multi_match(q, ["title^2", "title.ngram"], best_fields),
- *     filter = term(in_stock=true),           // 재고 없는 상품 제외
- *     functions = [
- *       field_value_factor(sales_count, log1p) * salesBoostFactor,   // 판매량 부스팅
- *       gauss(updated_at, origin=now, scale=7d, decay=0.5)           // 신선도 decay
- *     ],
- *     score_mode = SUM,           // 두 함수 점수 합산
- *     boost_mode = MULTIPLY       // BM25 점수에 곱함 → 결합 효과
- *   )
+ *   query = bool{
+ *     must  = function_score(
+ *               multi_match(q, ["title^2", "title.ngram"], best_fields),
+ *               [log1p(sales_count) * factor, gauss(updated_at, scale=7d)],
+ *               score_mode = SUM, boost_mode = MULTIPLY),
+ *     filter = [ term(in_stock=true) ]       // 항상 적용 — facet 계산에도 반영
+ *   }
+ *   post_filter = bool.filter([ category_leaf=?, range(price,min,max) ])   // 사용자 선택
+ *   aggs = {
+ *     categories:     terms(category_leaf, size=20),
+ *     price_ranges:   range(price, [0-10k, 10k-30k, 30k-100k, 100k+])
+ *   }
  * </pre>
  *
  * <p>설계 근거:
  * <ul>
- *   <li><b>title^2 + title.ngram</b>: 정확 매치 우선, edge_ngram은 부분/접두 매치 보조.
- *       template의 shopping_edge_ngram(2-10자) 사용.</li>
+ *   <li><b>title^2 + title.ngram</b>: 정확 매치 우선, edge_ngram은 부분/접두 매치 보조.</li>
  *   <li><b>log1p</b>: sales_count가 10만·100만 단위로 튀어도 폭발하지 않도록 압축.</li>
- *   <li><b>gauss decay</b>: updated_at이 오래될수록 점수 하락, 단 linear가 아닌 정규분포
- *       형태라 최근 데이터끼리는 차이가 작음 → 너무 공격적 penalize 방지.</li>
- *   <li><b>filter (not post_filter)</b>: filter는 스코어링 단계 전에 적용되어 품질 좋음.
- *       post_filter는 aggregation 결과를 유지하고 hits만 거를 때 사용.</li>
+ *   <li><b>gauss decay</b>: updated_at이 오래될수록 점수 하락, gauss 곡선이라 최근 데이터끼리 차이는 작음.</li>
+ *   <li><b>in_stock은 main filter</b>: 재고 없는 상품은 hits/facets 모두에서 제외.</li>
+ *   <li><b>category/price는 post_filter</b>: aggregation은 사용자가 필터 걸기 전 모집단을 기준으로
+ *       집계해야 다른 카테고리/가격대의 후보 수가 드러난다 — 드릴다운 UX의 핵심.
+ *       (단일 post_filter 패턴이므로 엄밀한 per-facet 제외는 하지 않는다 — PoC 단순화.)</li>
  * </ul>
  */
 @Component
@@ -73,25 +78,27 @@ public class SearchHandler {
         this.freshnessDecay = freshnessDecay;
     }
 
-    public SearchResponse<ObjectNode> search(String q, int from, int size) throws IOException {
+    public SearchResponse<ObjectNode> search(
+            String q,
+            int from,
+            int size,
+            String categoryLeaf,
+            Double priceMin,
+            Double priceMax) throws IOException {
+
         Query textQuery = Query.of(qb -> qb
                 .multiMatch(mm -> mm
                         .query(q)
                         .fields("title^2", "title.ngram")
                         .type(TextQueryType.BestFields)));
 
-        // 판매량 부스팅 함수 — in_stock=true 문서에만 적용 (재고 없는 상품은 가산점 없음).
         FunctionScore salesBoost = FunctionScore.of(fn -> fn
-                .filter(f -> f.term(t -> t
-                        .field("in_stock")
-                        .value(FieldValue.of(true))))
                 .fieldValueFactor(fvf -> fvf
                         .field("sales_count")
                         .modifier(FieldValueFactorModifier.Log1p)
                         .factor(salesBoostFactor)
                         .missing(0.0)));
 
-        // 신선도 decay — updated_at이 오래될수록 점수 하락, gauss 곡선.
         FunctionScore freshness = FunctionScore.of(fn -> fn
                 .gauss(g -> g
                         .field("updated_at")
@@ -100,10 +107,37 @@ public class SearchHandler {
                                 .scale(JsonData.of(freshnessScale))
                                 .decay(freshnessDecay))));
 
-        // 매칭 구간 하이라이팅 — title 필드만 대상.
-        // - unified highlighter: 기본값, BM25 점수와 정합성 좋고 추가 설정 없이 동작
-        // - numberOfFragments(0): title이 짧아 조각내지 않고 전체 반환 → 프론트는 그대로 렌더
-        // - requireFieldMatch(false): multi_match가 title.ngram으로 매칭된 경우에도 title 원문에 태그를 씌움
+        Query scoredQuery = Query.of(qb -> qb
+                .functionScore(fs -> fs
+                        .query(textQuery)
+                        .functions(List.of(salesBoost, freshness))
+                        .scoreMode(FunctionScoreMode.Sum)
+                        .boostMode(FunctionBoostMode.Multiply)));
+
+        // 메인 bool: scoredQuery + 항상 적용되는 in_stock 필터.
+        Query mainQuery = Query.of(qb -> qb
+                .bool(b -> b
+                        .must(scoredQuery)
+                        .filter(f -> f.term(t -> t
+                                .field("in_stock")
+                                .value(FieldValue.of(true))))));
+
+        // post_filter: 사용자가 고른 facet 선택. 하나도 없으면 match_all로 두지 않고 null 처리.
+        List<Query> postFilterClauses = new ArrayList<>();
+        if (categoryLeaf != null && !categoryLeaf.isBlank()) {
+            postFilterClauses.add(Query.of(qb -> qb
+                    .term(t -> t.field("category_leaf").value(FieldValue.of(categoryLeaf)))));
+        }
+        if (priceMin != null || priceMax != null) {
+            postFilterClauses.add(Query.of(qb -> qb
+                    .range(r -> {
+                        r.field("price");
+                        if (priceMin != null) r.gte(JsonData.of(priceMin));
+                        if (priceMax != null) r.lte(JsonData.of(priceMax));
+                        return r;
+                    })));
+        }
+
         Highlight highlight = Highlight.of(h -> h
                 .type(HighlighterType.Unified)
                 .preTags("<em>")
@@ -113,22 +147,33 @@ public class SearchHandler {
                         "title", HighlightField.of(f -> f.numberOfFragments(0))
                 )));
 
-        return es.search(s -> s
-                        .index(indexName)
-                        .from(from)
-                        .size(size)
-                        .trackTotalHits(tt -> tt.enabled(true))
-                        .query(query -> query
-                                .functionScore(fs -> fs
-                                        .query(textQuery)
-                                        .functions(List.of(salesBoost, freshness))
-                                        .scoreMode(FunctionScoreMode.Sum)
-                                        .boostMode(FunctionBoostMode.Multiply)
-                                ))
-                        .highlight(highlight)
-                        .postFilter(pf -> pf.term(t -> t
-                                .field("in_stock")
-                                .value(FieldValue.of(true)))),
+        // 가격대 범위는 한국 커머스 관행에 맞는 4단계. unbounded 상한은 [100k, +∞).
+        Aggregation categoriesAgg = Aggregation.of(a -> a
+                .terms(t -> t.field("category_leaf").size(20)));
+        Aggregation priceRangesAgg = Aggregation.of(a -> a
+                .range(r -> r
+                        .field("price")
+                        .ranges(List.of(
+                                AggregationRange.of(b -> b.key("~10000").to("10000")),
+                                AggregationRange.of(b -> b.key("10000-30000").from("10000").to("30000")),
+                                AggregationRange.of(b -> b.key("30000-100000").from("30000").to("100000")),
+                                AggregationRange.of(b -> b.key("100000~").from("100000"))
+                        ))));
+
+        return es.search(s -> {
+                    s.index(indexName)
+                     .from(from)
+                     .size(size)
+                     .trackTotalHits(tt -> tt.enabled(true))
+                     .query(mainQuery)
+                     .highlight(highlight)
+                     .aggregations("categories", categoriesAgg)
+                     .aggregations("price_ranges", priceRangesAgg);
+                    if (!postFilterClauses.isEmpty()) {
+                        s.postFilter(pf -> pf.bool(b -> b.filter(postFilterClauses)));
+                    }
+                    return s;
+                },
                 ObjectNode.class);
     }
 
