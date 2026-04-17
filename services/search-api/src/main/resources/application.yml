@@ -1,0 +1,29 @@
+server:
+  # 8083은 Debezium Connect가 점유 중. enricher=8081, bulk-indexer=8082, search-api=8084.
+  port: 8084
+
+spring:
+  application:
+    name: search-api
+
+es:
+  # coordinating 노드(node3) 경유.
+  # 설계 의도: 쿼리 병합(reduce) 스레드가 data 노드 Heap을 건드리지 않도록 격리 → p99 안정.
+  host: ${ES_HOST:http://localhost:9202}
+  # write alias (rollover 시에도 읽기 쪽은 alias 그대로 사용 가능).
+  index: ${ES_INDEX:products-v1}
+
+search:
+  # function_score 튜닝 파라미터. 운영에서는 A/B 테스트로 보정.
+  sales-boost-factor: 0.3      # log1p(sales_count) * factor
+  freshness-scale: 7d          # gauss decay scale
+  freshness-decay: 0.5         # scale 지점에서의 가중치
+  default-size: 20
+  max-size: 100
+
+logging:
+  level:
+    root: INFO
+    com.kakao.search: DEBUG
+    # ES 쿼리 raw 확인용 (문제 진단 시만 TRACE).
+    org.elasticsearch.client: INFO
