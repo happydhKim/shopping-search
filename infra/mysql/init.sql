@@ -11,6 +11,10 @@
 --     Enricher는 brands CDC 이벤트를 받아 영향받는 products를 역조회하는 로직이 필요.
 --     (이게 "간접 변경"의 전형 — docs/indexing-strategy.md의 정적/동적 색인 조합 근거)
 
+-- my.cnf 에서 init-connect + skip-character-set-client-handshake 로 강제하지만,
+-- init.sql 레벨에서도 방어적으로 명시. docs/incidents/2026-04-17-korean-encoding-fix.md 참조.
+SET NAMES utf8mb4;
+
 USE shopping;
 
 -- Debezium 전용 계정.
