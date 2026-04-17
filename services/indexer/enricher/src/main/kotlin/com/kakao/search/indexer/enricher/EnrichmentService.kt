@@ -50,8 +50,8 @@ class EnrichmentService(
         val tags: List<String> = parseJsonArray(row.tagsJson)
         val options: List<EnrichedProduct.Option> = parseOptions(row.optionsJson)
 
-        val createdIso = microsToIso(row.createdAt)
-        val updatedIso = microsToIso(row.updatedAt)
+        val createdIso = epochMillisToIso(row.createdAt)
+        val updatedIso = epochMillisToIso(row.updatedAt)
 
         val doc = EnrichedProduct(
             productId = row.productId,
@@ -164,8 +164,8 @@ class EnrichmentService(
             """SELECT product_id, title, brand_id, category_id, price, original_price, stock,
                       sales_count, view_count, review_count, review_score,
                       tags_json, options_json, seller_id, shipping_free, image_url,
-                      UNIX_TIMESTAMP(created_at)*1000000 AS created_at,
-                      UNIX_TIMESTAMP(updated_at)*1000000 AS updated_at
+                      UNIX_TIMESTAMP(created_at)*1000 AS created_at,
+                      UNIX_TIMESTAMP(updated_at)*1000 AS updated_at
                FROM products WHERE product_id = ?""",
             { rs, _ ->
                 ProductRow(
@@ -223,12 +223,19 @@ class EnrichmentService(
     }
 
     /**
-     * Debezium adaptive_time_microseconds → ISO-8601.
-     * epoch micros 기준. null 이면 현재 시각으로 대체 (스냅샷 중 타이밍 이슈 방지).
+     * epoch millis → ISO-8601.
+     *
+     * 왜 millis인가:
+     *   Debezium time.precision.mode=adaptive_time_microseconds 이지만, 이름과 달리
+     *   DATETIME(precision 0) 컬럼은 io.debezium.time.Timestamp (millis) 로 직렬화된다
+     *   (micros는 precision 4-6 컬럼에 한함). 우리 products 스키마는 precision 0 이므로
+     *   CDC 필드는 13자리 epoch millis. fetchProduct SQL도 *1000 으로 맞춤.
+     *
+     * null/0 이면 현재 시각으로 대체 — 스냅샷 초기 이벤트 타이밍 이슈 방어.
      */
-    private fun microsToIso(micros: Long?): String {
-        val instant = if (micros != null && micros > 0) {
-            Instant.ofEpochSecond(micros / 1_000_000, (micros % 1_000_000) * 1000)
+    private fun epochMillisToIso(millis: Long?): String {
+        val instant = if (millis != null && millis > 0) {
+            Instant.ofEpochMilli(millis)
         } else Instant.now()
         return instant.atOffset(ZoneOffset.UTC).toString()
     }
