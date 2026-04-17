@@ -72,15 +72,21 @@ CREATE TABLE IF NOT EXISTS products (
   KEY idx_updated (updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 시드 데이터 — Phase 3 초기 동작 확인용 최소 셋.
--- 대량 데이터는 scripts/seed-mysql.sh가 dummy/generate-products.py 결과를 LOAD DATA로 주입한다.
+-- 시드 데이터 — dummy/generate-products.py의 BRANDS 배열과 1:1 일치.
+-- 대량 데이터는 scripts/seed-mysql.sh가 JSONL을 LOAD DATA로 주입한다.
+-- 여기서 brand_id B0001~B0020을 모두 미리 seed해야 enricher가 brand_name join에 성공.
+-- categories는 seed-mysql.sh 3) 단계에서 동적으로 INSERT IGNORE되므로 여기선 표준 케이스만 커버.
 
 INSERT INTO brands (brand_id, brand_name) VALUES
-  ('B0001', '나이키'),
-  ('B0002', '아디다스'),
-  ('B0003', '뉴발란스'),
-  ('B0013', '유니클로');
+  ('B0001', '나이키'),       ('B0002', '아디다스'),     ('B0003', '뉴발란스'),
+  ('B0004', '퓨마'),         ('B0005', '언더아머'),     ('B0006', '아식스'),
+  ('B0007', '컨버스'),       ('B0008', '반스'),         ('B0009', '리복'),
+  ('B0010', '휠라'),         ('B0011', '데상트'),       ('B0012', '무신사스탠다드'),
+  ('B0013', '유니클로'),     ('B0014', '자라'),         ('B0015', 'H&M'),
+  ('B0016', '에잇세컨즈'),   ('B0017', '스파오'),       ('B0018', '탑텐'),
+  ('B0019', '지오다노'),     ('B0020', '캠브리지멤버스');
 
+-- 초기 스모크 테스트용 3건만 표준 카테고리로 잡아두고, 나머지는 seed-mysql.sh가 동적 채움.
 INSERT INTO categories (category_id, leaf_name, leaf_path) VALUES
   ('C0001', '러닝화',   '패션/신발/러닝화'),
   ('C0002', '스니커즈', '패션/신발/스니커즈'),
