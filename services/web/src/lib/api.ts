@@ -27,6 +27,7 @@ export type SearchHit = {
   id: string;
   score: number;
   source: ProductSource;
+  highlights?: Record<string, string[]>;
 };
 
 export type SearchResponse = {

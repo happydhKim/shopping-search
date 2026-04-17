@@ -9,6 +9,9 @@ import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScoreMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.core.search.Highlight;
+import co.elastic.clients.elasticsearch.core.search.HighlightField;
+import co.elastic.clients.elasticsearch.core.search.HighlighterType;
 import co.elastic.clients.json.JsonData;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,6 +19,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 /**
  * ES 쿼리 조립/실행 핵심.
@@ -94,6 +98,19 @@ public class SearchHandler {
                                 .scale(JsonData.of(freshnessScale))
                                 .decay(freshnessDecay))));
 
+        // 매칭 구간 하이라이팅 — title 필드만 대상.
+        // - unified highlighter: 기본값, BM25 점수와 정합성 좋고 추가 설정 없이 동작
+        // - numberOfFragments(0): title이 짧아 조각내지 않고 전체 반환 → 프론트는 그대로 렌더
+        // - requireFieldMatch(false): multi_match가 title.ngram으로 매칭된 경우에도 title 원문에 태그를 씌움
+        Highlight highlight = Highlight.of(h -> h
+                .type(HighlighterType.Unified)
+                .preTags("<em>")
+                .postTags("</em>")
+                .requireFieldMatch(false)
+                .fields(Map.of(
+                        "title", HighlightField.of(f -> f.numberOfFragments(0))
+                )));
+
         return es.search(s -> s
                         .index(indexName)
                         .from(from)
@@ -106,6 +123,7 @@ public class SearchHandler {
                                         .scoreMode(FunctionScoreMode.Sum)
                                         .boostMode(FunctionBoostMode.Multiply)
                                 ))
+                        .highlight(highlight)
                         .postFilter(pf -> pf.term(t -> t
                                 .field("in_stock")
                                 .value(FieldValue.of(true)))),
