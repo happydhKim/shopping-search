@@ -245,6 +245,10 @@ services:
     ports:
       - "3306:3306"
     volumes:
+      # charset.cnf: 클라이언트/서버 charset 을 utf8mb4 로 고정
+      # (왜: 기본 이미지의 [client]/[mysql] 섹션에 default-character-set 미지정 → CLI 가 OS locale 의 latin1
+      #  으로 연결되어 init.sql 시드 시 Mojibake 발생. docs/incidents/2026-04-17-korean-encoding-fix.md 참조)
+      - ./mysql/my.cnf:/etc/mysql/conf.d/charset.cnf:ro
       - ./mysql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
       - mysql-data:/var/lib/mysql
     networks: [search-net]
