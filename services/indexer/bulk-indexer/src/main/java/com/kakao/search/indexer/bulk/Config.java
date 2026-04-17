@@ -5,7 +5,6 @@ import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.rest_client.RestClientTransport;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import org.apache.http.HttpHost;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -33,24 +32,14 @@ public class Config {
     private String esHost;
 
     /**
-     * ObjectMapper — Enricher가 camelCase로 직렬화했으므로 그대로 받는다.
-     * 단 ES 인덱스 필드명은 snake_case이므로 색인 직전 변환이 필요.
-     * BulkIndexerService에서 명시적으로 변환한다.
+     * ObjectMapper — Enricher가 snake_case(필드)+camelCase(wrapper)로 직렬화했으므로 그대로 받는다.
+     * wrapper 키(op/productId)는 노드 수준 접근이라 naming 전략 영향 없음.
+     * doc 하위 필드는 enricher 측 @JsonNaming(SnakeCase)로 이미 snake_case.
      */
     @Bean
     public ObjectMapper objectMapper() {
         return new ObjectMapper()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-    }
-
-    /**
-     * ES 인덱스 필드명용 별도 매퍼 — snake_case 직렬화.
-     * dynamic: strict 인 템플릿에 맞게 필드명이 한 글자라도 어긋나면 색인 실패.
-     */
-    @Bean
-    public ObjectMapper esFieldMapper() {
-        return new ObjectMapper()
-                .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
     }
 
     @Bean

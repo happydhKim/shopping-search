@@ -9,7 +9,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -33,17 +32,14 @@ public class BulkIndexerService {
 
     private final ElasticsearchClient es;
     private final ObjectMapper mapper;
-    private final ObjectMapper esFieldMapper;
     private final String indexName;
 
     public BulkIndexerService(
             ElasticsearchClient es,
-            @Qualifier("objectMapper") ObjectMapper mapper,
-            @Qualifier("esFieldMapper") ObjectMapper esFieldMapper,
+            ObjectMapper mapper,
             @Value("${es.index}") String indexName) {
         this.es = es;
         this.mapper = mapper;
-        this.esFieldMapper = esFieldMapper;
         this.indexName = indexName;
     }
 
@@ -69,9 +65,9 @@ public class BulkIndexerService {
                 req.operations(BulkOperation.of(b -> b
                         .delete(d -> d.index(indexName).id(productId))));
             } else {
-                // doc을 ES 필드명(snake_case)으로 재직렬화.
+                // enricher가 이미 snake_case로 직렬화했으므로 그대로 Map으로 변환해 전송.
                 JsonNode docNode = node.get("doc");
-                Object doc = esFieldMapper.treeToValue(docNode, Object.class);
+                Object doc = mapper.treeToValue(docNode, Object.class);
                 req.operations(BulkOperation.of(b -> b
                         .index(i -> i.index(indexName).id(productId).document(doc))));
             }

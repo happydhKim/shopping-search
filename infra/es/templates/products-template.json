@@ -1,6 +1,5 @@
 {
-  "index_patterns": ["products-*"],
-  "data_stream": {},
+  "index_patterns": ["products-v1-*"],
   "priority": 200,
   "template": {
     "settings": {
@@ -8,6 +7,7 @@
       "number_of_replicas": 1,
       "refresh_interval": "1s",
       "index.lifecycle.name": "products-ilm",
+      "index.lifecycle.rollover_alias": "products-v1",
       "translog": {
         "durability": "async",
         "sync_interval": "5s"
@@ -90,6 +90,6 @@
   },
   "_meta": {
     "phase": "2",
-    "description": "Phase 2 data stream template with ILM. rollover + hot/warm/cold tier 자동 전환."
+    "description": "Phase 2 rollover-alias template. write alias=products-v1, ILM rollover + hot/warm/cold tier 자동 전환. CDC upsert를 지원하기 위해 data stream 대신 alias 패턴 채택."
   }
 }

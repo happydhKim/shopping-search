@@ -13,7 +13,8 @@ bulk-indexer:
 
 es:
   host: ${ES_HOST:http://localhost:9200}
-  index: ${ES_INDEX:products}
+  # data stream 이름. template의 index_patterns(products-*)와 매칭되어야 ILM + mapping이 적용됨.
+  index: ${ES_INDEX:products-v1}
 
 logging:
   level:

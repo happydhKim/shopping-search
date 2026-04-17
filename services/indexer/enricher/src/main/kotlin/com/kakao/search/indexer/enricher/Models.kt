@@ -2,6 +2,8 @@ package com.kakao.search.indexer.enricher
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.databind.PropertyNamingStrategies
+import com.fasterxml.jackson.databind.annotation.JsonNaming
 
 /**
  * Debezium ExtractNewRecordState SMT 이후 메시지 형태.
@@ -49,10 +51,14 @@ data class CategoryRow(
 )
 
 /**
- * ES products-v1 인덱스 스키마와 1:1 매칭.
+ * ES products-* 데이터 스트림 스키마와 1:1 매칭.
  * infra/es/templates/products-template.json의 mapping과 필드명/타입이 일치해야 한다.
  * dynamic: strict 이므로 여분 필드가 섞이면 색인 실패.
+ *
+ * 직렬화 규약: Jackson SnakeCaseStrategy로 Kotlin camelCase 프로퍼티를 snake_case로 변환.
+ * 단, @timestamp는 전용 필드명이므로 @JsonProperty로 명시 override.
  */
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy::class)
 data class EnrichedProduct(
     val productId: String,
     val title: String,
@@ -77,7 +83,8 @@ data class EnrichedProduct(
     val imageUrl: String?,
     val createdAt: String,   // ISO-8601
     val updatedAt: String,
-    val atTimestamp: String, // @timestamp for data stream
+    @JsonProperty("@timestamp")
+    val atTimestamp: String, // data stream routing 필드
 ) {
     data class Option(val color: String, val size: String, val stock: Int)
 }
