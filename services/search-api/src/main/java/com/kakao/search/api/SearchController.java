@@ -1,5 +1,9 @@
 package com.kakao.search.api;
 
+import co.elastic.clients.elasticsearch._types.aggregations.Aggregate;
+import co.elastic.clients.elasticsearch._types.aggregations.LongTermsBucket;
+import co.elastic.clients.elasticsearch._types.aggregations.RangeBucket;
+import co.elastic.clients.elasticsearch._types.aggregations.StringTermsBucket;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -13,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +52,10 @@ public class SearchController {
     public ResponseEntity<?> search(
             @RequestParam(name = "q") String q,
             @RequestParam(name = "page", defaultValue = "0") int page,
-            @RequestParam(name = "size", required = false) Integer sizeParam) throws IOException {
+            @RequestParam(name = "size", required = false) Integer sizeParam,
+            @RequestParam(name = "category", required = false) String category,
+            @RequestParam(name = "price_min", required = false) Double priceMin,
+            @RequestParam(name = "price_max", required = false) Double priceMax) throws IOException {
 
         // 입력 방어 — 빈 쿼리는 match_all로 해석하지 않고 400.
         if (q == null || q.isBlank()) {
@@ -57,7 +65,7 @@ public class SearchController {
         int size = sizeParam != null ? Math.min(sizeParam, maxSize) : defaultSize;
         int from = Math.max(page, 0) * size;
 
-        SearchResponse<ObjectNode> resp = handler.search(q, from, size);
+        SearchResponse<ObjectNode> resp = handler.search(q, from, size, category, priceMin, priceMax);
 
         List<Map<String, Object>> hits = resp.hits().hits().stream()
                 .map(this::toHitView)
@@ -65,14 +73,16 @@ public class SearchController {
 
         long total = resp.hits().total() != null ? resp.hits().total().value() : 0L;
 
-        Map<String, Object> body = Map.of(
-                "total", total,
-                "took_ms", resp.took(),
-                "page", page,
-                "size", size,
-                "hits", hits
-        );
-        log.debug("search q='{}' total={} took={}ms", q, total, resp.took());
+        Map<String, Object> body = new HashMap<>();
+        body.put("total", total);
+        body.put("took_ms", resp.took());
+        body.put("page", page);
+        body.put("size", size);
+        body.put("hits", hits);
+        body.put("facets", extractFacets(resp));
+
+        log.debug("search q='{}' total={} took={}ms filters=[cat={},p={}~{}]",
+                q, total, resp.took(), category, priceMin, priceMax);
         return ResponseEntity.ok(body);
     }
 
@@ -86,5 +96,47 @@ public class SearchController {
             view.put("highlights", h.highlight());
         }
         return view;
+    }
+
+    /**
+     * ES aggregation 결과를 프런트가 바로 렌더할 수 있는 flat 구조로 변환.
+     *
+     * <p>Elasticsearch Java client는 terms/range 결과를 sealed union(Aggregate)로 돌려주므로
+     * 분기해서 key/count만 꺼낸다 — 프런트는 ES DSL을 알 필요가 없다.
+     */
+    private Map<String, Object> extractFacets(SearchResponse<ObjectNode> resp) {
+        Map<String, Object> facets = new HashMap<>();
+
+        Aggregate catsAgg = resp.aggregations().get("categories");
+        if (catsAgg != null && catsAgg.isSterms()) {
+            List<Map<String, Object>> items = new ArrayList<>();
+            for (StringTermsBucket b : catsAgg.sterms().buckets().array()) {
+                items.add(Map.of("key", b.key().stringValue(), "count", b.docCount()));
+            }
+            facets.put("categories", items);
+        } else if (catsAgg != null && catsAgg.isLterms()) {
+            // category_leaf가 numeric으로 매핑된 레거시 케이스 대비.
+            List<Map<String, Object>> items = new ArrayList<>();
+            for (LongTermsBucket b : catsAgg.lterms().buckets().array()) {
+                items.add(Map.of("key", String.valueOf(b.key()), "count", b.docCount()));
+            }
+            facets.put("categories", items);
+        }
+
+        Aggregate priceAgg = resp.aggregations().get("price_ranges");
+        if (priceAgg != null && priceAgg.isRange()) {
+            List<Map<String, Object>> items = new ArrayList<>();
+            for (RangeBucket b : priceAgg.range().buckets().array()) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("key", b.key());
+                row.put("count", b.docCount());
+                if (b.from() != null) row.put("from", b.from());
+                if (b.to() != null) row.put("to", b.to());
+                items.add(row);
+            }
+            facets.put("price_ranges", items);
+        }
+
+        return facets;
     }
 }

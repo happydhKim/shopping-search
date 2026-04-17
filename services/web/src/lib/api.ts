@@ -30,18 +30,38 @@ export type SearchHit = {
   highlights?: Record<string, string[]>;
 };
 
+export type CategoryFacet = { key: string; count: number };
+export type PriceRangeFacet = {
+  key: string;
+  count: number;
+  from?: number;
+  to?: number;
+};
+export type Facets = {
+  categories?: CategoryFacet[];
+  price_ranges?: PriceRangeFacet[];
+};
+
 export type SearchResponse = {
   total: number;
   took_ms: number;
   page: number;
   size: number;
   hits: SearchHit[];
+  facets?: Facets;
+};
+
+export type SearchFilters = {
+  category?: string | null;
+  priceMin?: number | null;
+  priceMax?: number | null;
 };
 
 export async function searchProducts(
   q: string,
   page: number,
   size: number,
+  filters?: SearchFilters,
   signal?: AbortSignal,
 ): Promise<SearchResponse> {
   const params = new URLSearchParams({
@@ -49,6 +69,9 @@ export async function searchProducts(
     page: String(page),
     size: String(size),
   });
+  if (filters?.category) params.set("category", filters.category);
+  if (filters?.priceMin != null) params.set("price_min", String(filters.priceMin));
+  if (filters?.priceMax != null) params.set("price_max", String(filters.priceMax));
   const res = await fetch(`/api/search?${params.toString()}`, { signal });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
