@@ -1,0 +1,21 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: bulk-indexer
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:29092}
+
+bulk-indexer:
+  consumer:
+    group-id: bulk-indexer-v1
+
+es:
+  host: ${ES_HOST:http://localhost:9200}
+  index: ${ES_INDEX:products}
+
+logging:
+  level:
+    root: INFO
+    com.kakao.search: DEBUG
