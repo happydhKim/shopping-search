@@ -7,6 +7,8 @@ import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScoreMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
+import co.elastic.clients.elasticsearch._types.SortOrder;
+import co.elastic.clients.elasticsearch._types.query_dsl.MatchPhrasePrefixQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Highlight;
@@ -127,6 +129,44 @@ public class SearchHandler {
                         .postFilter(pf -> pf.term(t -> t
                                 .field("in_stock")
                                 .value(FieldValue.of(true)))),
+                ObjectNode.class);
+    }
+
+    /**
+     * 자동완성 후보 조회.
+     *
+     * <p>설계:
+     * <ul>
+     *   <li><b>match_phrase_prefix</b>: "나이" 같은 짧은 접두 입력에 적합. title과 title.ngram 둘 다 질의.
+     *       — title은 공백 기준 토큰의 prefix, title.ngram은 edge_ngram 분석 결과에 대한 prefix.
+     *       둘을 bool.should로 묶어 매칭 폭을 넓힌다.</li>
+     *   <li><b>sort by sales_count desc</b>: 접두 매칭 후보 중 인기 상품이 먼저 뜨도록.
+     *       BM25 점수로도 가능하지만, 자동완성 UX에서는 "많이 팔리는 것"이 더 직관적.</li>
+     *   <li><b>_source filter</b>: title + product_id만 반환해 payload 절약.</li>
+     *   <li><b>size 10</b>: 드롭다운에 적절한 상한.</li>
+     * </ul>
+     */
+    public SearchResponse<ObjectNode> suggest(String q, int size) throws IOException {
+        MatchPhrasePrefixQuery prefixTitle = MatchPhrasePrefixQuery.of(mp -> mp
+                .field("title")
+                .query(q));
+        MatchPhrasePrefixQuery prefixNgram = MatchPhrasePrefixQuery.of(mp -> mp
+                .field("title.ngram")
+                .query(q));
+
+        return es.search(s -> s
+                        .index(indexName)
+                        .size(size)
+                        .trackTotalHits(tt -> tt.enabled(false))
+                        .source(src -> src.filter(f -> f.includes("product_id", "title")))
+                        .query(query -> query.bool(b -> b
+                                .should(sh -> sh.matchPhrasePrefix(prefixTitle))
+                                .should(sh -> sh.matchPhrasePrefix(prefixNgram))
+                                .filter(f -> f.term(t -> t
+                                        .field("in_stock")
+                                        .value(FieldValue.of(true))))
+                                .minimumShouldMatch("1")))
+                        .sort(so -> so.field(f -> f.field("sales_count").order(SortOrder.Desc))),
                 ObjectNode.class);
     }
 }
