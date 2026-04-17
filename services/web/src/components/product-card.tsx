@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Package, Truck, Star } from "lucide-react";
 import type { SearchHit } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { HighlightedText } from "@/components/highlighted-text";
 
 const krw = new Intl.NumberFormat("ko-KR");
 
@@ -44,7 +45,10 @@ export function ProductCard({ hit }: { hit: SearchHit }) {
             <span>{p.category_leaf}</span>
           </div>
           <h3 className="mt-1 line-clamp-2 text-sm font-medium leading-snug text-neutral-900 dark:text-neutral-100">
-            {p.title}
+            <HighlightedText
+              html={hit.highlights?.title?.[0]}
+              fallback={p.title}
+            />
           </h3>
         </div>
 

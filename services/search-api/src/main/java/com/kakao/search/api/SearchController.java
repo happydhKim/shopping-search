@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -76,10 +77,14 @@ public class SearchController {
     }
 
     private Map<String, Object> toHitView(Hit<ObjectNode> h) {
-        return Map.of(
-                "id", h.id(),
-                "score", h.score() != null ? h.score() : 0.0,
-                "source", h.source()
-        );
+        // Map.of는 null 값을 거부하므로 highlight 유무에 따라 조립.
+        Map<String, Object> view = new HashMap<>();
+        view.put("id", h.id());
+        view.put("score", h.score() != null ? h.score() : 0.0);
+        view.put("source", h.source());
+        if (h.highlight() != null && !h.highlight().isEmpty()) {
+            view.put("highlights", h.highlight());
+        }
+        return view;
     }
 }
