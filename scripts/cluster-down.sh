@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# Phase 1 클러스터 정지
+# Phase 2 클러스터 정지
 #   기본: 컨테이너만 중지 (볼륨 보존)
 #   --purge: 볼륨까지 삭제 (데이터 초기화)
 #
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INFRA_DIR="${PROJECT_ROOT}/infra/phase1"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INFRA_DIR="${PROJECT_ROOT}/infra"
 
 cd "${INFRA_DIR}"
 

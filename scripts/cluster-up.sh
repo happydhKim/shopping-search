@@ -9,16 +9,16 @@
 #
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INFRA_DIR="${PROJECT_ROOT}/infra/phase2"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INFRA_DIR="${PROJECT_ROOT}/infra"
 ES_URL="${ES_URL:-http://localhost:9200}"
 
 # ─────────────────────────────────────────
 # 1. Phase 1 클러스터가 떠 있으면 정지
 # ─────────────────────────────────────────
 echo "[1/5] Phase 1 클러스터 정리"
-if docker compose -f "${PROJECT_ROOT}/infra/phase1/docker-compose.yml" ps --quiet 2>/dev/null | grep -q .; then
-  docker compose -f "${PROJECT_ROOT}/infra/phase1/docker-compose.yml" down
+if docker compose -f "${PROJECT_ROOT}/infra/docker-compose.yml" ps --quiet 2>/dev/null | grep -q .; then
+  docker compose -f "${PROJECT_ROOT}/infra/docker-compose.yml" down
   echo "  Phase 1 정지 완료"
 else
   echo "  Phase 1 실행 중 아님 — skip"
@@ -55,13 +55,13 @@ done
 # 4. ILM 정책 등록
 # ─────────────────────────────────────────
 echo "[4/5] ILM 정책 등록: products-ilm"
-"${PROJECT_ROOT}/scripts/phase2/apply-ilm.sh"
+"${PROJECT_ROOT}/scripts/apply-ilm.sh"
 
 # ─────────────────────────────────────────
 # 5. 인덱스 템플릿 등록 (data stream)
 # ─────────────────────────────────────────
 echo "[5/5] products-template 등록 (data stream)"
-"${PROJECT_ROOT}/scripts/phase2/apply-template.sh"
+"${PROJECT_ROOT}/scripts/apply-template.sh"
 
 echo
 echo "DONE — Phase 2 cluster ready (5-node Hot/Warm/Cold)"
@@ -70,6 +70,6 @@ echo "  Prometheus:     http://localhost:9090"
 echo "  Grafana:        http://localhost:3000  (admin/admin)"
 echo
 echo "다음 단계:"
-echo "  ./scripts/phase2/seed-data.sh       — 데이터 투입 + rollover"
-echo "  ./scripts/phase2/check-tier.sh      — tier 분포 확인"
-echo "  ./scripts/phase2/observe-warm.sh    — warm 이동 후 segment/heap 비교"
+echo "  ./scripts/seed-data.sh       — 데이터 투입 + rollover"
+echo "  ./scripts/check-tier.sh      — tier 분포 확인"
+echo "  ./scripts/observe-warm.sh    — warm 이동 후 segment/heap 비교"

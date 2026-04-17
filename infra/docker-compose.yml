@@ -1,0 +1,320 @@
+# Unified infra — Phase 1/2/3 통합
+#
+# 설계 의도 (히스토리):
+#   - Phase 1(3-node) → Phase 2(5-node Hot-Warm-Cold + ILM) → Phase 3(파이프라인 + 검색 서비스)
+#   - Phase 1/2 디렉토리는 제거하고 본 compose로 통합. 히스토리는 docs/phase1.md, phase2.md, phase3.md에 보존.
+#
+# ES 5-node:
+#   - node1, node2: master + data_hot (최신, 쓰기 대상)
+#   - node3:        master-only (coordinating 겸용, 데이터 미보관)
+#   - node4:        data_warm (force-merge 완료, 읽기 전용)
+#   - node5:        data_cold (장기 보관)
+#
+# Phase 3 인프라:
+#   - Kafka (KRaft mode, single broker): CDC 이벤트 + products-enriched 토픽
+#   - MySQL 8.0: 원천 DB, binlog=ROW 로 Debezium CDC 가능
+#   - Debezium Connect: MySQL binlog → Kafka
+#   - Redis: enricher의 brand/category lookup 캐시
+#
+# 리소스 가정: ES 5개 + 모니터링 3개 + Phase 3 인프라 4개 ≈ RAM 12G 이상 권장
+
+services:
+  # ─────────────────────────────────────────
+  # Elasticsearch — 5-node cluster (hot/warm/cold)
+  # ─────────────────────────────────────────
+
+  es-node1:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: es-node1
+    environment:
+      - node.name=node1
+      - cluster.name=search-poc
+      - discovery.seed_hosts=es-node1,es-node2,es-node3,es-node4,es-node5
+      - cluster.initial_master_nodes=node1,node2,node3
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ./es/node1.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - es-node1-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks: [search-net]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  es-node2:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: es-node2
+    environment:
+      - node.name=node2
+      - cluster.name=search-poc
+      - discovery.seed_hosts=es-node1,es-node2,es-node3,es-node4,es-node5
+      - cluster.initial_master_nodes=node1,node2,node3
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ./es/node2.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - es-node2-data:/usr/share/elasticsearch/data
+    ports:
+      - "9201:9200"
+    networks: [search-net]
+    depends_on: [es-node1]
+
+  es-node3:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: es-node3
+    environment:
+      - node.name=node3
+      - cluster.name=search-poc
+      - discovery.seed_hosts=es-node1,es-node2,es-node3,es-node4,es-node5
+      - cluster.initial_master_nodes=node1,node2,node3
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ./es/node3.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - es-node3-data:/usr/share/elasticsearch/data
+    ports:
+      - "9202:9200"
+    networks: [search-net]
+    depends_on: [es-node1]
+
+  es-node4:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: es-node4
+    environment:
+      - node.name=node4
+      - cluster.name=search-poc
+      - discovery.seed_hosts=es-node1,es-node2,es-node3,es-node4,es-node5
+      - cluster.initial_master_nodes=node1,node2,node3
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ./es/node4.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - es-node4-data:/usr/share/elasticsearch/data
+    ports:
+      - "9203:9200"
+    networks: [search-net]
+    depends_on: [es-node1]
+
+  es-node5:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: es-node5
+    environment:
+      - node.name=node5
+      - cluster.name=search-poc
+      - discovery.seed_hosts=es-node1,es-node2,es-node3,es-node4,es-node5
+      - cluster.initial_master_nodes=node1,node2,node3
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ./es/node5.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - es-node5-data:/usr/share/elasticsearch/data
+    ports:
+      - "9204:9200"
+    networks: [search-net]
+    depends_on: [es-node1]
+
+  # ─────────────────────────────────────────
+  # Monitoring — Prometheus + Grafana
+  # ─────────────────────────────────────────
+
+  es-exporter:
+    image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.7.0
+    container_name: es-exporter
+    command:
+      - '--es.uri=http://es-node1:9200'
+      - '--es.all'
+      - '--es.indices'
+      - '--es.indices_settings'
+      - '--es.shards'
+      - '--es.cluster_settings'
+    ports:
+      - "9114:9114"
+    networks: [search-net]
+    depends_on: [es-node1]
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [search-net]
+    depends_on: [es-exporter]
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks: [search-net]
+    depends_on: [prometheus]
+
+  # ─────────────────────────────────────────
+  # Phase 3 — 색인 파이프라인 인프라
+  # ─────────────────────────────────────────
+
+  # Kafka (KRaft mode, single broker).
+  # 왜 Zookeeper 없이 KRaft인가: 최신 Kafka(3.5+)는 ZK 없이도 동작하며 PoC에선 컨테이너 하나를 줄이는 게
+  # 리소스상 이득. 단일 브로커라 replication.factor=1 전제로 토픽을 만들어야 한다.
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: kafka
+    environment:
+      # KRaft 모드: broker + controller 역할을 같은 프로세스가 겸함
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      # PoC — 단일 브로커이므로 replication.factor=1 고정
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      # CLUSTER_ID는 16바이트 base64 UUID여야 함 (평문 불가). python3 -c "import uuid,base64; print(base64.urlsafe_b64encode(uuid.uuid4().bytes).decode().rstrip('='))" 로 생성.
+      CLUSTER_ID: 'y8HKXTa6RqOPwSBsJunnJQ'
+    ports:
+      - "29092:29092"  # 호스트에서 localhost:29092 로 접근
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks: [search-net]
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # MySQL 8.0 — 상품 원천 DB.
+  # 왜 binlog=ROW: Debezium은 row-level 변경 이벤트를 읽기 때문에 STATEMENT/MIXED로는 CDC 불가.
+  # gtid_mode=ON: 장애 복구 시 Debezium이 GTID로 재개 가능 (binlog position보다 안전).
+  mysql:
+    image: mysql:8.0.36
+    container_name: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: shopping
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
+    command:
+      - --server-id=223344
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      - --default-authentication-plugin=mysql_native_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - mysql-data:/var/lib/mysql
+    networks: [search-net]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # Debezium Connect — MySQL binlog → Kafka.
+  # Kafka Connect 프레임워크 위에 Debezium 플러그인이 얹힌 형태.
+  # 커넥터는 컨테이너 기동 후 register-debezium.sh로 POST 해서 등록한다.
+  debezium:
+    image: debezium/connect:2.6
+    container_name: debezium
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: debezium-connect
+      CONFIG_STORAGE_TOPIC: debezium_config
+      OFFSET_STORAGE_TOPIC: debezium_offsets
+      STATUS_STORAGE_TOPIC: debezium_status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: 'false'
+      VALUE_CONVERTER_SCHEMAS_ENABLE: 'false'
+    ports:
+      - "8083:8083"
+    networks: [search-net]
+    depends_on:
+      kafka: { condition: service_healthy }
+      mysql: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # Redis — enricher의 brand/category 조회 캐시.
+  # 왜 Redis인가: Enricher가 건당 MySQL 조회하면 bulk 색인 처리량이 DB RTT에 묶인다.
+  # hot key(브랜드/카테고리)는 히트율이 극도로 높아 Redis TTL 캐시가 효과적.
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks: [search-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+networks:
+  search-net:
+    driver: bridge
+
+volumes:
+  es-node1-data:
+  es-node2-data:
+  es-node3-data:
+  es-node4-data:
+  es-node5-data:
+  prometheus-data:
+  grafana-data:
+  kafka-data:
+  mysql-data:
+  redis-data:

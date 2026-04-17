@@ -77,4 +77,4 @@ echo
 echo "[3/3] Data stream 상태"
 curl -fsS "${ES_URL}/_data_stream/${STREAM}?pretty" 2>&1 | head -30
 echo
-echo "DONE — 다음 단계: ./scripts/phase2/check-tier.sh"
+echo "DONE — 다음 단계: ./scripts/check-tier.sh"

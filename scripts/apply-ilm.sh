@@ -4,9 +4,9 @@
 #
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ES_URL="${ES_URL:-http://localhost:9200}"
-ILM_FILE="${PROJECT_ROOT}/infra/phase2/es/ilm/products-ilm.json"
+ILM_FILE="${PROJECT_ROOT}/infra/es/ilm/products-ilm.json"
 
 if [[ ! -f "${ILM_FILE}" ]]; then
   echo "ERROR: ILM file not found: ${ILM_FILE}"

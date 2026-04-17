@@ -13,9 +13,9 @@
 #     dynamic: strict / nested options / ngram 분석기가 전부 빠진 채 고정된다.
 #
 # 사용법:
-#   scripts/phase1/bulk-index.sh [JSONL]
+#   scripts/bulk-index.sh [JSONL]
 #   ES_URL=http://localhost:9200 INDEX=products-v1 BATCH_SIZE=2000 \
-#     scripts/phase1/bulk-index.sh dummy/products.jsonl
+#     scripts/bulk-index.sh dummy/products.jsonl
 
 set -euo pipefail
 

@@ -4,9 +4,9 @@
 #
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ES_URL="${ES_URL:-http://localhost:9200}"
-TEMPLATE_FILE="${PROJECT_ROOT}/infra/phase2/es/templates/products-template.json"
+TEMPLATE_FILE="${PROJECT_ROOT}/infra/es/templates/products-template.json"
 
 if [[ ! -f "${TEMPLATE_FILE}" ]]; then
   echo "ERROR: template file not found: ${TEMPLATE_FILE}"
